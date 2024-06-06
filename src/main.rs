@@ -1,6 +1,7 @@
 use std::f64::consts::PI;
 
-use pyo3::prelude::*;
+use arrayvec::ArrayVec;
+// use pyo3::prelude::*;
 use ::rayon::prelude::*;
 
 #[non_exhaustive]
@@ -67,24 +68,21 @@ impl Ord for Centroid {
 
 
 struct Container {
-    capacity: usize,
-    centroids: Vec<Centroid>,
+    centroids: ArrayVec<Centroid, 10000>,
 }
 
 impl Container {
 
-    fn new(capacity: usize) -> Container {
+    fn new() -> Container {
 
-        let capacity: usize = capacity;
+        let centroids: ArrayVec<Centroid, 10000> = ArrayVec::<Centroid, 10000>::new();
 
-        let centroids: Vec<Centroid> = Vec::with_capacity(capacity);
-
-        Container {capacity, centroids}
+        Container {centroids}
     }
 
-    fn is_full(&self) -> bool {
-        self.centroids.len() == self.capacity
-    }
+    // fn is_full(&self) -> bool {
+    //     self.centroids.is_full()
+    // }
 
     fn weigh(&self) -> f64 {
 
@@ -107,7 +105,6 @@ impl Container {
 
 }
 
-#[pyclass]
 struct Digest {
 
     delta: f64,
@@ -120,15 +117,13 @@ struct Digest {
     unmerged: Container,
 }
 
-#[pymethods]
 impl Digest {
 
-    #[new]
     fn new(delta: f64) -> Digest {
 
         assert!(delta > 0.0);
 
-        let capacity: usize = (6.0 * delta + 10.0) as usize;
+        // let capacity: usize = (6.0 * delta + 10.0) as usize;
 
         Digest {
             delta,
@@ -136,23 +131,20 @@ impl Digest {
             variance: 1.0,
             weight: 1.0,
             processed: true,
-            merged: Container::new(capacity),
-            unmerged: Container::new(capacity),
+            merged: Container::new(),
+            unmerged: Container::new(),
         }
 
     }
 
-    fn should_merge(&self) -> bool {
-
-        // self.processed
+    fn _should_merge(&self) -> bool {
 
         if self.processed {
-            true
+            return false
         }
 
-        else {
-            self.merged.is_full() | self.unmerged.is_full()
-        }
+        (self.merged.centroids.remaining_capacity() - self.merged.centroids.capacity() < 10)
+        | (self.unmerged.centroids.remaining_capacity() - self.unmerged.centroids.capacity() < 10)
 
     }
 
@@ -185,7 +177,11 @@ impl Digest {
             return
         }
 
-        self.merged.centroids.append(&mut self.unmerged.centroids);
+
+        for centroid in &self.unmerged.centroids {
+
+            self.merged.centroids.push(centroid.clone());
+        }
 
         self.merged.centroids.sort();
 
@@ -304,7 +300,7 @@ impl Digest {
 
     fn cdf(&mut self, value: f64) -> Option<f64> {
 
-        if self.should_merge() {
+        if self._should_merge() {
             self.merge();
         }
 
@@ -314,7 +310,7 @@ impl Digest {
 
     fn cdfs(&mut self, values: Vec<f64>) -> Vec<Option<f64>> {
 
-        if self.should_merge() {
+        if self._should_merge() {
             self.merge();
         }
 
@@ -325,10 +321,34 @@ impl Digest {
 
 }
 
-#[pymodule]
-fn tdrust(_py: Python, m: &PyModule) -> PyResult<()> {
+fn main() {
 
-    m.add_class::<Digest>()?;
+    let delta: f64 = 100.0;
 
-    Ok(())
+    let mut digest: Digest = Digest::new(delta);
+
+    digest.push(1.0, 1.0);
+    digest.push(4.0, 1.0);
+    digest.push(3.0, 1.0);
+    digest.push(2.0, 1.0);
+    digest.push(1.0, 1.0);
+    digest.append(vec![1.0], 1.0);
+
+    digest.merge();
+
+    let _: Option<f64> = digest.cdf(1.0);
+    let cdfs: Vec<Option<f64>> = digest.cdfs(vec![1.0]);
+
+    println!("{:?}", cdfs)
+
 }
+
+// #[pymodule]
+// fn tdrust(_py: Python, m: &PyModule) -> PyResult<()> {
+
+//     m.add_class::<Centroid>()?;
+//     m.add_class::<Container>()?;
+//     m.add_class::<Digest>()?;
+
+//     Ok(())
+// }

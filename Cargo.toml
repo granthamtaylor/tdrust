@@ -9,5 +9,6 @@ name = "tdrust"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = "0.20.0"
+numpy = "0.21.0"
+pyo3 = "0.21.2"
 rayon = "1.10.0"
