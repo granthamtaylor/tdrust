@@ -1,5 +1,9 @@
 use std::f64::consts::PI;
+use log::warn;
 
+use numpy::{PyArray1, PyReadonlyArray1};
+use pyo3::exceptions::PyTypeError;
+use pyo3::{types::PyModule, PyResult, Python, pymodule};
 use pyo3::prelude::*;
 use ::rayon::prelude::*;
 
@@ -158,6 +162,10 @@ impl Digest {
 
     fn push(&mut self, value: f64, weight: f64) {
 
+        if self.should_merge() {
+            self.merge();
+        }
+
         let delta: f64 = value - self.mean;
 
         let ratio: f64 = weight / (weight + self.merged.weigh());
@@ -241,7 +249,7 @@ impl Digest {
 
     }
 
-    fn _cdf(&self, value: f64) -> Option<f64> {
+    fn _cdf(&self, value: f64) -> f64 {
 
         let mut k: f64 = 0.0;
 
@@ -263,7 +271,7 @@ impl Digest {
 
         let centroid = match closest {
             Some(object) => object,
-            None => return None,
+            None => return f64::NAN,
         };
 
 
@@ -278,15 +286,15 @@ impl Digest {
                 }
             }
 
-            return Some((k + (tiebreak * 0.5)) / self.weight)
+            return (k + (tiebreak * 0.5)) / self.weight
         }
 
         else if value > centroid.value {
-            return Some(1.0)
+            return 1.0
         }
 
         else if index == 0 {
-            return Some(0.0)
+            return 0.0
         }
 
         else {
@@ -297,30 +305,40 @@ impl Digest {
             let m: f64 = (right.value - left.value) / (left.weight * 0.5 + right.weight * 0.5);
             let x: f64 = (value - left.value) / m;
             
-            Some((k + x) / self.weight)
+            (k + x) / self.weight
         }
         
     }
 
-    fn cdf(&mut self, value: f64) -> Option<f64> {
+    fn cdf(&mut self, value: f64) -> f64 {
 
-        if self.should_merge() {
-            self.merge();
+        if !self.processed {
+            warn!("Digest is not merged");
         }
 
         self._cdf(value)
 
     }
 
-    fn cdfs(&mut self, values: Vec<f64>) -> Vec<Option<f64>> {
+    fn cdfs<'py>(
+        &mut self,
+        py: Python<'py>,
+        values: PyReadonlyArray1<'py, f64>
+    ) -> Result<Bound<'py, PyArray1<f64>>, PyErr> {
 
-        if self.should_merge() {
-            self.merge();
+        if !self.processed {
+            warn!("Digest is not merged");
         }
 
-        values.par_iter()
-            .map(|value| { self._cdf(*value) })
-            .collect()
+        if let Ok(slice) = values.as_slice() {
+            let out: Vec<f64> = slice.par_iter()
+                .map(|value| { self._cdf(*value) })
+                .collect();
+            Ok(PyArray1::from_vec_bound(py, out))
+        }
+        else {
+            Err(PyTypeError::new_err("Error message"))
+        }
     }
 
 }
