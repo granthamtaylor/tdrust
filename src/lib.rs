@@ -243,7 +243,7 @@ impl Digest {
 
         self.weight = cum;
 
-        self.merged.centroids.retain(|centroid| centroid.weight > 0.);
+        self.merged.centroids.retain(|centroid: &Centroid| centroid.weight > 0.);
 
         self.processed = true;
 
@@ -269,7 +269,7 @@ impl Digest {
             index += 1;
         }
 
-        let centroid = match closest {
+        let centroid: &Centroid = match closest {
             Some(object) => object,
             None => return f64::NAN,
         };
@@ -332,7 +332,7 @@ impl Digest {
 
         if let Ok(slice) = values.as_slice() {
             let out: Vec<f64> = slice.par_iter()
-                .map(|value| { self._cdf(*value) })
+                .map(|value: &f64| { self._cdf(*value) })
                 .collect();
             Ok(PyArray1::from_vec_bound(py, out))
         }
