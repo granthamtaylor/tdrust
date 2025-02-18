@@ -1,5 +1,4 @@
 use std::f64::consts::PI;
-use log::warn;
 
 use numpy::{PyArray1, PyReadonlyArray1};
 use pyo3::exceptions::PyTypeError;
@@ -180,11 +179,13 @@ impl Digest {
 
     }
 
-    fn append(&mut self, values: Vec<f64>, weight: f64) {
+    fn append<'py>(&mut self, values: PyReadonlyArray1<'py, f64>, weight: f64) {
 
-        for value in values {
-            self.push(value, weight)
+        if let Ok(slice) = values.as_slice() {
+            slice.iter().for_each(|value: &f64| { self.push(*value, weight) });
         }
+
+        self.merge();
     }
 
     fn merge(&mut self) {
@@ -210,8 +211,8 @@ impl Digest {
 
             let proposition: f64 = self.merged.centroids[index].weight + self.merged.centroids[other].weight;
 
-            let is_too_small: bool = (self.merged.centroids[index].weight < Constants::MINISCULE) | (self.merged.centroids[other].weight < Constants::MINISCULE);
-            let is_too_close: bool = ((self.merged.centroids[index].weight - self.merged.centroids[other].weight).abs() < Constants::TINY) | ((self.merged.centroids[index].weight / self.merged.centroids[other].weight).abs() < Constants::SMALL);
+            let is_small: bool = (self.merged.centroids[index].weight < Constants::MINISCULE) | (self.merged.centroids[other].weight < Constants::MINISCULE);
+            let is_close: bool = ((self.merged.centroids[index].weight - self.merged.centroids[other].weight).abs() < Constants::TINY) | ((self.merged.centroids[index].weight / self.merged.centroids[other].weight).abs() < Constants::SMALL);
 
             let z: f64 = proposition * normalizer;
             let q0: f64 = cum / weight;
@@ -219,7 +220,7 @@ impl Digest {
 
             let is_improvement: bool = (z <= (q0 * (1. - q0))) & (z <= (q2 * (1. - q2)));
 
-            if is_improvement | is_too_close | is_too_small {
+            if is_improvement | is_close | is_small {
                 self.merged.centroids[other].weight += self.merged.centroids[index].weight;
                 self.merged.centroids[other].value += (
                     self.merged.centroids[index].value - self.merged.centroids[other].value
@@ -249,27 +250,23 @@ impl Digest {
 
     }
 
-    fn _cdf(&self, value: f64) -> f64 {
+    fn cdf(&self, value: f64) -> f64 {
 
         let mut k: f64 = 0.0;
 
         let mut index: usize = 0;
 
-        let mut closest: Option<&Centroid> = None;
-
-        for centroid in self.merged.centroids.iter() {
-
-            closest = Some(centroid);
+        for (i, centroid) in self.merged.centroids.iter().enumerate() {
             
             if centroid.value >= value {
-                break
+                index = i;
+                break;
             }
             
             k += centroid.weight;
-            index += 1;
         }
 
-        let centroid: &Centroid = match closest {
+        let centroid: &Centroid = match self.merged.centroids.get(index) {
             Some(object) => object,
             None => return f64::NAN,
         };
@@ -302,7 +299,7 @@ impl Digest {
             let left: &Centroid = &self.merged.centroids[index - 1];
     
             k -= left.weight * 0.5;
-            let m: f64 = (right.value - left.value) / (left.weight * 0.5 + right.weight * 0.5);
+            let m: f64 =  (right.value - left.value) / (left.weight / 2. + right.weight / 2.);
             let x: f64 = (value - left.value) / m;
             
             (k + x) / self.weight
@@ -310,41 +307,37 @@ impl Digest {
         
     }
 
-    fn cdf(&mut self, value: f64) -> f64 {
-
-        if !self.processed {
-            warn!("Digest is not merged");
-        }
-
-        self._cdf(value)
-
-    }
-
     fn cdfs<'py>(
-        &mut self,
+        &self,
         py: Python<'py>,
-        values: PyReadonlyArray1<'py, f64>
+        values: PyReadonlyArray1<'py, f64>,
+        multithreaded: bool,
     ) -> Result<Bound<'py, PyArray1<f64>>, PyErr> {
-
-        if !self.processed {
-            warn!("Digest is not merged");
-        }
-
+        
         if let Ok(slice) = values.as_slice() {
-            let out: Vec<f64> = slice.par_iter()
-                .map(|value: &f64| { self._cdf(*value) })
-                .collect();
-            Ok(PyArray1::from_vec_bound(py, out))
+
+            if !multithreaded {
+                let out: Vec<f64> = slice.iter()
+                    .map(|value: &f64| { self.cdf(*value) })
+                    .collect();
+                Ok(PyArray1::from_vec(py, out))
+            }
+            else {
+                let out: Vec<f64> = slice.par_iter()
+                    .map(|value: &f64| { self.cdf(*value) })
+                    .collect();
+                Ok(PyArray1::from_vec(py, out))
+            }
         }
         else {
-            Err(PyTypeError::new_err("Error message"))
+            Err(PyTypeError::new_err("invalid array"))
         }
     }
 
 }
 
 #[pymodule]
-fn tdrust(_py: Python, m: &PyModule) -> PyResult<()> {
+fn tdrust(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add_class::<Digest>()?;
 

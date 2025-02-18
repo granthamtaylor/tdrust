@@ -1,15 +1,32 @@
-[build-system]
-requires = ["maturin>=1.5,<2.0"]
-build-backend = "maturin"
-
 [project]
 name = "tdrust"
-requires-python = ">=3.8"
-classifiers = [
-    "Programming Language :: Rust",
-    "Programming Language :: Python :: Implementation :: CPython",
-    "Programming Language :: Python :: Implementation :: PyPy",
+version = "0.1.0"
+description = "Add your description here"
+readme = "docs/README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "maturin>=1.8.2",
+    "numpy>=2.2.3",
+    "pytest>=8.3.4",
+    "pytest-benchmark>=5.1.0",
+    "pytest-monitor>=1.6.6",
 ]
-dynamic = ["version"]
+
+[build-system]
+requires = ["maturin>=1.8.2"]
+build-backend = "maturin"
+
 [tool.maturin]
 features = ["pyo3/extension-module"]
+module-name = "tdrust"
+
+[tool.uv]
+# Rebuild package when any rust files change
+cache-keys = [{file = "pyproject.toml"}, {file = "rust/Cargo.toml"}, {file = "**/*.rs"}]
+
+[dependency-groups]
+dev = [
+    "pytdigest>=0.1.4",
+]
+# Uncomment to build rust code in development mode
+# config-settings = { build-args = '--profile=dev' }
